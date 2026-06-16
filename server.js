@@ -17,25 +17,17 @@ app.get("/", (req, res) => {
 });
 
 app.get("/health", async (req, res) => {
-  try {
-    const { data, error } = await supabase
-      .from("clients")
-      .select("*")
-      .limit(1);
+  const { data, error } = await supabase
+    .from("clients")
+    .select("*")
+    .limit(1);
 
-    res.json({
-      status: "online",
-      database: error ? "erro" : "conectado",
-      clients_found: data ? data.length : 0,
-      error: error ? error.message : null
-    });
-
-  } catch (err) {
-    res.status(500).json({
-      status: "erro",
-      message: err.message
-    });
-  }
+  res.json({
+    status: "online",
+    database: error ? "erro" : "conectado",
+    clients_found: data ? data.length : 0,
+    error: error ? error.message : null
+  });
 });
 
 const PORT = process.env.PORT || 3000;
