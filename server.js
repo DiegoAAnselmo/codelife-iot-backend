@@ -1,20 +1,41 @@
 import express from "express";
 import cors from "cors";
+import { createClient } from "@supabase/supabase-js";
 
 const app = express();
 
 app.use(cors());
 app.use(express.json());
 
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+);
+
 app.get("/", (req, res) => {
   res.send("Codelife IoT Backend Online");
 });
 
-app.get("/health", (req, res) => {
-  res.json({
-    status: "online",
-    service: "codelife-iot-backend"
-  });
+app.get("/health", async (req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("clients")
+      .select("*")
+      .limit(1);
+
+    res.json({
+      status: "online",
+      database: error ? "erro" : "conectado",
+      clients_found: data ? data.length : 0,
+      error: error ? error.message : null
+    });
+
+  } catch (err) {
+    res.status(500).json({
+      status: "erro",
+      message: err.message
+    });
+  }
 });
 
 const PORT = process.env.PORT || 3000;
