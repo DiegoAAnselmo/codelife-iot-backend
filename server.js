@@ -557,6 +557,104 @@ app.get("/api/equipments/:equipment_code/history", async (req, res) => {
     });
   }
 });
+app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
+  try {
+    const { equipment_code } = req.params;
+
+    const { data: equipment, error: equipmentError } = await supabase
+      .from("equipments")
+      .select("*")
+      .eq("equipment_code", equipment_code)
+      .single();
+
+    if (equipmentError || !equipment) {
+      return res.status(404).json({
+        success: false,
+        error: "Equipamento não encontrado",
+        equipment_code
+      });
+    }
+
+    const { data: latestReadings, error: readingsError } = await supabase
+      .from("readings")
+      .select("*")
+      .eq("equipment_id", equipment.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (readingsError) {
+      return res.status(500).json({
+        success: false,
+        error: readingsError.message
+      });
+    }
+
+    const latestBySensor = {};
+
+    for (const reading of latestReadings) {
+      if (!latestBySensor[reading.sensor_code]) {
+        latestBySensor[reading.sensor_code] = {
+          sensor_code: reading.sensor_code,
+          value: reading.value,
+          unit: reading.unit,
+          status: reading.status,
+          created_at: reading.created_at
+        };
+      }
+    }
+
+    const { data: widgets, error: widgetsError } = await supabase
+      .from("dashboard_widgets")
+      .select("*")
+      .eq("equipment_id", equipment.id)
+      .order("position", { ascending: true });
+
+    if (widgetsError) {
+      return res.status(500).json({
+        success: false,
+        error: widgetsError.message
+      });
+    }
+
+    const dashboardWidgets = widgets.map(widget => {
+      const reading = widget.sensor_code
+        ? latestBySensor[widget.sensor_code]
+        : null;
+
+      return {
+        id: widget.id,
+        title: widget.title,
+        widget_type: widget.widget_type,
+        sensor_code: widget.sensor_code,
+        position: widget.position,
+        config: widget.config,
+        value: reading ? reading.value : null,
+        unit: reading ? reading.unit : null,
+        status: reading ? reading.status : null,
+        last_update: reading ? reading.created_at : null
+      };
+    });
+
+    return res.json({
+      success: true,
+      equipment: {
+        id: equipment.id,
+        name: equipment.name,
+        equipment_code: equipment.equipment_code,
+        type: equipment.type,
+        location: equipment.location,
+        status: equipment.status
+      },
+      widgets: dashboardWidgets
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
