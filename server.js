@@ -12,24 +12,6 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-app.get("/", (req, res) => {
-  res.send("Codelife IoT Backend Online");
-});
-
-app.get("/health", async (req, res) => {
-  const { data, error } = await supabase
-    .from("clients")
-    .select("*")
-    .limit(1);
-
-  res.json({
-    status: "online",
-    database: error ? "erro" : "conectado",
-    clients_found: data ? data.length : 0,
-    error: error ? error.message : null
-  });
-});
-
 app.post("/api/iot/readings", async (req, res) => {
   try {
     const payload = req.body;
@@ -55,6 +37,44 @@ app.post("/api/iot/readings", async (req, res) => {
       });
     }
 
+    const { data: equipment, error: equipmentError } = await supabase
+      .from("equipments")
+      .select("*")
+      .eq("client_id", client.id)
+      .eq("equipment_code", payload.equipment_id)
+      .single();
+
+    if (equipmentError || !equipment) {
+      return res.status(404).json({
+        success: false,
+        error: "Equipamento não encontrado",
+        equipment_id: payload.equipment_id
+      });
+    }
+
+    const { data: device, error: deviceError } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("client_id", client.id)
+      .eq("device_code", payload.device_id)
+      .single();
+
+    if (deviceError || !device) {
+      return res.status(404).json({
+        success: false,
+        error: "Dispositivo não encontrado",
+        device_id: payload.device_id
+      });
+    }
+
+    await supabase
+      .from("devices")
+      .update({
+        status: "online",
+        last_seen: new Date().toISOString()
+      })
+      .eq("id", device.id);
+
     const sensorReadings = [
       { sensor_code: "vibracao_rms", value: payload.vibracao_rms, unit: "g", status: payload.status_vibracao },
       { sensor_code: "vibracao_pico", value: payload.vibracao_pico, unit: "g", status: payload.status_vibracao },
@@ -64,14 +84,30 @@ app.post("/api/iot/readings", async (req, res) => {
       { sensor_code: "pulsos_impacto", value: payload.pulsos_impacto, unit: "pulsos", status: payload.status_impacto }
     ].filter(item => item.value !== undefined && item.value !== null);
 
-    const rows = sensorReadings.map(item => ({
-      client_id: client.id,
-      sensor_code: item.sensor_code,
-      value: Number(item.value),
-      unit: item.unit,
-      status: item.status,
-      payload: payload
-    }));
+    const { data: sensors, error: sensorsError } = await supabase
+      .from("sensors")
+      .select("*")
+      .eq("device_id", device.id);
+
+    if (sensorsError) {
+      throw sensorsError;
+    }
+
+    const rows = sensorReadings.map(item => {
+      const sensor = sensors.find(s => s.sensor_code === item.sensor_code);
+
+      return {
+        client_id: client.id,
+        equipment_id: equipment.id,
+        device_id: device.id,
+        sensor_id: sensor ? sensor.id : null,
+        sensor_code: item.sensor_code,
+        value: Number(item.value),
+        unit: item.unit,
+        status: item.status,
+        payload: payload
+      };
+    });
 
     const { data, error } = await supabase
       .from("readings")
@@ -79,18 +115,26 @@ app.post("/api/iot/readings", async (req, res) => {
       .select();
 
     if (error) {
-      return res.status(500).json({ success: false, error: error.message });
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
     }
 
     return res.json({
       success: true,
-      message: "Leituras gravadas com sucesso",
+      message: "Leituras gravadas com vínculos completos",
       inserted: data.length,
+      equipment_id: equipment.id,
+      device_id: device.id,
       readings: data
     });
 
   } catch (err) {
-    return res.status(500).json({ success: false, error: err.message });
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
   }
 });
 
