@@ -431,6 +431,132 @@ app.get("/api/equipments/:equipment_code/latest", async (req, res) => {
     });
   }
 });
+app.get("/api/equipments", async (req, res) => {
+  try {
+    const { client_slug } = req.query;
+
+    let clientId = null;
+
+    if (client_slug) {
+      const { data: client, error: clientError } = await supabase
+        .from("clients")
+        .select("*")
+        .eq("slug", client_slug)
+        .single();
+
+      if (clientError || !client) {
+        return res.status(404).json({
+          success: false,
+          error: "Cliente não encontrado",
+          client_slug
+        });
+      }
+
+      clientId = client.id;
+    }
+
+    let query = supabase
+      .from("equipments")
+      .select(`
+        *,
+        devices (
+          id,
+          device_code,
+          name,
+          status,
+          last_seen,
+          mqtt_topic
+        )
+      `)
+      .order("created_at", { ascending: false });
+
+    if (clientId) {
+      query = query.eq("client_id", clientId);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+      return res.status(500).json({
+        success: false,
+        error: error.message
+      });
+    }
+
+    return res.json({
+      success: true,
+      count: data.length,
+      equipments: data
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+app.get("/api/equipments/:equipment_code/history", async (req, res) => {
+  try {
+    const { equipment_code } = req.params;
+    const limit = Number(req.query.limit || 100);
+
+    const { data: equipment, error: equipmentError } = await supabase
+      .from("equipments")
+      .select("*")
+      .eq("equipment_code", equipment_code)
+      .single();
+
+    if (equipmentError || !equipment) {
+      return res.status(404).json({
+        success: false,
+        error: "Equipamento não encontrado",
+        equipment_code
+      });
+    }
+
+    const { data: readings, error: readingsError } = await supabase
+      .from("readings")
+      .select(`
+        sensor_code,
+        value,
+        unit,
+        status,
+        created_at
+      `)
+      .eq("equipment_id", equipment.id)
+      .order("created_at", { ascending: false })
+      .limit(limit);
+
+    if (readingsError) {
+      return res.status(500).json({
+        success: false,
+        error: readingsError.message
+      });
+    }
+
+    return res.json({
+      success: true,
+      equipment: {
+        id: equipment.id,
+        name: equipment.name,
+        equipment_code: equipment.equipment_code,
+        type: equipment.type,
+        location: equipment.location,
+        status: equipment.status
+      },
+      count: readings.length,
+      history: readings
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
