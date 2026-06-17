@@ -365,7 +365,72 @@ app.post("/api/provision/device", async (req, res) => {
     });
   }
 });
+app.get("/api/equipments/:equipment_code/latest", async (req, res) => {
+  try {
+    const { equipment_code } = req.params;
 
+    const { data: equipment, error: equipmentError } = await supabase
+      .from("equipments")
+      .select("*")
+      .eq("equipment_code", equipment_code)
+      .single();
+
+    if (equipmentError || !equipment) {
+      return res.status(404).json({
+        success: false,
+        error: "Equipamento não encontrado",
+        equipment_code
+      });
+    }
+
+    const { data: readings, error: readingsError } = await supabase
+      .from("readings")
+      .select("*")
+      .eq("equipment_id", equipment.id)
+      .order("created_at", { ascending: false })
+      .limit(100);
+
+    if (readingsError) {
+      return res.status(500).json({
+        success: false,
+        error: readingsError.message
+      });
+    }
+
+    const latestBySensor = {};
+
+    for (const reading of readings) {
+      if (!latestBySensor[reading.sensor_code]) {
+        latestBySensor[reading.sensor_code] = {
+          sensor_code: reading.sensor_code,
+          value: reading.value,
+          unit: reading.unit,
+          status: reading.status,
+          created_at: reading.created_at
+        };
+      }
+    }
+
+    return res.json({
+      success: true,
+      equipment: {
+        id: equipment.id,
+        name: equipment.name,
+        equipment_code: equipment.equipment_code,
+        type: equipment.type,
+        location: equipment.location,
+        status: equipment.status
+      },
+      latest: latestBySensor
+    });
+
+  } catch (err) {
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
