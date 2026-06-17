@@ -575,6 +575,12 @@ app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
       });
     }
 
+    const { data: device } = await supabase
+      .from("devices")
+      .select("*")
+      .eq("equipment_id", equipment.id)
+      .maybeSingle();
+
     const { data: latestReadings, error: readingsError } = await supabase
       .from("readings")
       .select("*")
@@ -590,8 +596,13 @@ app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
     }
 
     const latestBySensor = {};
+    let latestPayload = null;
 
     for (const reading of latestReadings) {
+      if (!latestPayload && reading.payload) {
+        latestPayload = reading.payload;
+      }
+
       if (!latestBySensor[reading.sensor_code]) {
         latestBySensor[reading.sensor_code] = {
           sensor_code: reading.sensor_code,
@@ -621,6 +632,23 @@ app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
         ? latestBySensor[widget.sensor_code]
         : null;
 
+      let value = reading ? reading.value : null;
+      let unit = reading ? reading.unit : null;
+      let status = reading ? reading.status : null;
+      let lastUpdate = reading ? reading.created_at : null;
+
+      if (!widget.sensor_code && widget.config?.field === "status_geral") {
+        value = latestPayload?.status_geral || null;
+        status = latestPayload?.status_geral || null;
+        lastUpdate = latestPayload ? latestReadings[0]?.created_at : null;
+      }
+
+      if (!widget.sensor_code && widget.config?.field === "last_seen") {
+        value = device?.last_seen || null;
+        status = device?.status || null;
+        lastUpdate = device?.last_seen || null;
+      }
+
       return {
         id: widget.id,
         title: widget.title,
@@ -628,10 +656,10 @@ app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
         sensor_code: widget.sensor_code,
         position: widget.position,
         config: widget.config,
-        value: reading ? reading.value : null,
-        unit: reading ? reading.unit : null,
-        status: reading ? reading.status : null,
-        last_update: reading ? reading.created_at : null
+        value,
+        unit,
+        status,
+        last_update: lastUpdate
       };
     });
 
@@ -645,6 +673,7 @@ app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
         location: equipment.location,
         status: equipment.status
       },
+      device: device || null,
       widgets: dashboardWidgets
     });
 
