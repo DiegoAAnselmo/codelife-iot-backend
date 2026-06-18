@@ -684,6 +684,79 @@ app.get("/api/equipments/:equipment_code/dashboard", async (req, res) => {
     });
   }
 });
+// ─── Checklist Template ──────────────────────────────────────────────────────
+
+app.get("/api/checklist-template/test", (req, res) => {
+  res.json({
+    success: true,
+    message: "checklist template route online",
+    supabase_configured: !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY),
+  });
+});
+
+app.get("/api/checklist-template/:typeCode", async (req, res) => {
+  const { typeCode } = req.params;
+  try {
+    const { data, error } = await supabase
+      .from("checklist_items")
+      .select("id, item_code, label, section_code, section_title, field_type, options, unit, required, severity_default, order_index")
+      .eq("checklist_type_code", typeCode)
+      .order("order_index", { ascending: true });
+
+    if (error) throw error;
+
+    if (!data || data.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: `Nenhum item encontrado para checklist_type_code = '${typeCode}'`,
+      });
+    }
+
+    const sectionMap = new Map();
+    data.forEach(item => {
+      const key = item.section_code || "_sem_secao";
+      if (!sectionMap.has(key)) {
+        sectionMap.set(key, {
+          section_code: item.section_code,
+          section_title: item.section_title || "",
+          items: [],
+        });
+      }
+      let options = null;
+      if (Array.isArray(item.options)) {
+        options = item.options;
+      } else if (typeof item.options === "string") {
+        try { options = JSON.parse(item.options); } catch { options = null; }
+      }
+      sectionMap.get(key).items.push({
+        id: item.id,
+        item_code: item.item_code,
+        label: item.label,
+        section_code: item.section_code,
+        section_title: item.section_title || "",
+        field_type: item.field_type || "boolean",
+        options,
+        unit: item.unit || null,
+        required: item.required || false,
+        severity_default: item.severity_default || "media",
+        order_index: item.order_index,
+      });
+    });
+
+    return res.json({
+      success: true,
+      type_code: typeCode,
+      count: data.length,
+      sections: [...sectionMap.values()],
+    });
+  } catch (err) {
+    console.error(`[checklist-template] Erro ao buscar ${typeCode}:`, err.message);
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
