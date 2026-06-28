@@ -7,12 +7,33 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+// ─── Middleware de API Key para ingestão IoT (Etapa 7B.15A) ─────────────────
+// Protege POST /api/iot/readings contra envio público não autorizado.
+// O ESP32 deve enviar: x-api-key: <IOT_INGEST_API_KEY>
+// GETs de dashboard e /api/provision/device não são afetados.
+function requireApiKey(req, res, next) {
+  const envKey = process.env.IOT_INGEST_API_KEY;
+  if (!envKey || !envKey.trim()) {
+    return res.status(503).json({
+      error: "IOT_INGEST_API_KEY não configurada no servidor. "
+           + "Adicione a variável de ambiente e reinicie.",
+    });
+  }
+  const header = req.headers["x-api-key"];
+  if (!header || header.trim() !== envKey.trim()) {
+    return res.status(401).json({
+      error: "API Key ausente ou inválida. Envie o header: x-api-key: <IOT_INGEST_API_KEY>",
+    });
+  }
+  next();
+}
+
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-app.post("/api/iot/readings", async (req, res) => {
+app.post("/api/iot/readings", requireApiKey, async (req, res) => {
   try {
     const payload = req.body;
 
